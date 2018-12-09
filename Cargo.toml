@@ -6,6 +6,7 @@ edition = "2018"
 categories = ["data-structures"]
 keywords = ["region", "buffer", "shared", "mutable", "reference"]
 license = "MIT/Apache-2.0"
+description = "A growable array allowing for multiple mutable non overlapping regions"
 
 [badges]
 [badges.appveyor]
