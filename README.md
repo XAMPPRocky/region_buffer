@@ -14,7 +14,7 @@ region_buffer = "0.1"
 ```
 
 ```rust
- use region_buffer::RegionBuffer;
+use region_buffer::RegionBuffer;
 let mut buffer = RegionBuffer::new();
 
 buffer.push(1);
@@ -37,45 +37,40 @@ assert_eq!(*b, 3);
 There is a `region_buffer` macro provided to make initialisation more
 convenient.
 ```rust
- #[macro_use]
- extern crate region_buffer;
+#[macro_use]
+extern crate region_buffer;
 
- fn main() {
-let strings = region_buffer!["Hello", "World", "!"];
+fn main() {
+    let strings = region_buffer!["Hello", "World", "!"];
 
-let mut greeting =  strings.get_mut(0);
-let mut noun =  strings.get_mut(1);
-let mut punctuation =  strings.get_mut(2);
+    let mut greeting =  strings.get_mut(0);
+    let mut noun =  strings.get_mut(1);
+    let mut punctuation =  strings.get_mut(2);
 
-*greeting = "Hallo";
-*noun = "Peter";
-*punctuation = ".";
+    *greeting = "Hallo";
+    *noun = "Peter";
+    *punctuation = ".";
 
-let string = format!("{} {}{}", greeting, noun, punctuation);
-assert_eq!(string, "Hallo Peter.")
- }
+    let string = format!("{} {}{}", greeting, noun, punctuation);
+    assert_eq!(string, "Hallo Peter.")
+}
 ```
 The macro can also be used to specify and initialise large regions of
 memory.
 ```rust
- #[macro_use]
- extern crate region_buffer;
+#[macro_use]
+extern crate region_buffer;
 
- type Slice<'a> = region_buffer::Slice<'a, u8>;
+type Slice<'a> = region_buffer::Slice<'a, u8>;
 
- struct Console;
- impl Console {
-   fn new(_: Slice, _: Slice, _: Slice, _: Slice) {}
- }
+fn main() {
+    let memory = region_buffer![0; 0xFFFF];
 
- fn main() {
-let memory = region_buffer![0; 0xFFFF];
+    let rom =  memory.region(0, 0x800);
+    let gpu = memory.region(0x800, 0x1600);
+    let sound = memory.region(0x1600, 0x2400);
+    let ram = memory.region(0x2400, 0xFFFF);
 
-let rom =  memory.region(0, 0x800);
-let gpu = memory.region(0x800, 0x1600);
-let sound = memory.region(0x1600, 0x2400);
-let ram = memory.region(0x2400, 0xFFFF);
-
-let console = Console::new(rom, gpu, sound, ram);
- }
+    let console = Console::new(rom, gpu, sound, ram);
+}
 ```
