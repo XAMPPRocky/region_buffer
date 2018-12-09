@@ -9,7 +9,11 @@
 A growable array allowing for multiple mutable non overlapping regions from
 the same `Vec`.
 
+```toml
+region_buffer = "0.1"
 ```
+
+```rust
  use region_buffer::RegionBuffer;
 let mut buffer = RegionBuffer::new();
 
@@ -32,7 +36,7 @@ assert_eq!(*b, 3);
 ```
 There is a `region_buffer` macro provided to make initialisation more
 convenient.
-```
+```rust
  #[macro_use]
  extern crate region_buffer;
 
@@ -53,7 +57,7 @@ assert_eq!(string, "Hallo Peter.")
 ```
 The macro can also be used to specify and initialise large regions of
 memory.
-```
+```rust
  #[macro_use]
  extern crate region_buffer;
 
