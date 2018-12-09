@@ -7,6 +7,7 @@ categories = ["data-structures"]
 keywords = ["region", "buffer", "shared", "mutable", "reference"]
 license = "MIT/Apache-2.0"
 description = "A growable array allowing for multiple mutable non overlapping regions"
+repository = "https://github.com/Aaronepower/region_buffer.git"
 
 [badges]
 [badges.appveyor]
