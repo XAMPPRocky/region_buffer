@@ -13,6 +13,8 @@ the same `Vec`.
 region_buffer = "0.1"
 ```
 
+# Examples
+
 ```rust
 use region_buffer::RegionBuffer;
 let mut buffer = RegionBuffer::new();
