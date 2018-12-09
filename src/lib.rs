@@ -177,7 +177,14 @@ impl<T> RegionBuffer<T> {
     ///
     /// Note that this method has no effect on the allocated capacity of the
     /// buffer.
+    ///
+    /// # Panics
+    /// If `len` is less than an already borrowed region.
     pub fn truncate(&mut self, len: usize) {
+        assert!(
+            self.ranges.read().unwrap().iter().all(|(_, end)| len > *end),
+            "Truncated into an already borrowed region"
+        );
         self.region.truncate(len)
     }
 
@@ -515,5 +522,24 @@ mod tests {
 
         let _ = foo.region(0, 0x400);
         let _ = foo.region(0, 0x400);
+    }
+
+    #[test]
+    fn truncate() {
+        let mut foo = region_buffer![1, 2, 3];
+
+        let _a = foo.get_mut(0);
+
+        foo.truncate(2);
+    }
+
+    #[test]
+    #[should_panic(expected="Truncated into an already borrowed region")]
+    fn truncate_into_borrowed() {
+        let mut foo = region_buffer![1, 2, 3];
+
+        let _a = foo.get_mut(2);
+
+        foo.truncate(2);
     }
 }
