@@ -74,13 +74,12 @@
 
 #![deny(missing_docs)]
 
+use std::cell::UnsafeCell;
 use std::cmp::PartialEq;
 use std::collections::HashSet;
 use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::sync::{Arc, RwLock};
-
-type Ranges = Arc<RwLock<HashSet<(usize, usize)>>>;
+use std::sync::RwLock;
 
 /// Creates a [`RegionBuffer`] containing the arguments.
 /// `region_buffer!` allows [`RegionBuffer`]s to be defined with the same syntax
@@ -135,7 +134,7 @@ macro_rules! region_buffer {
 /// regions from it, as long these regions don't overlap.
 #[derive(Debug, Default)]
 pub struct RegionBuffer<T> {
-    region: Vec<T>,
+    region: UnsafeCell<Vec<T>>,
     ranges: Ranges,
 }
 
@@ -147,8 +146,8 @@ impl<T> RegionBuffer<T> {
     pub fn new() -> Self
     {
         Self {
-            region: Vec::new(),
-            ranges: Arc::new(RwLock::new(HashSet::new())),
+            region: UnsafeCell::new(Vec::new()),
+            ranges: Ranges::new(),
         }
     }
 
@@ -157,18 +156,18 @@ impl<T> RegionBuffer<T> {
     /// # Panics
     /// Panics if the number of elements in the buffer overflows a `usize`.
     pub fn push(&mut self, element: T) {
-        self.region.push(element)
+        unsafe { &mut *self.region.get() }.push(element)
     }
 
     /// Returns the number of elements in the buffer, also referred to as its
     /// 'length'.
     pub fn len(&self) -> usize {
-        self.region.len()
+        unsafe { &*self.region.get() }.len()
     }
 
     /// Returns `true` if the region buffer contains no elements.
     pub fn is_empty(&self) -> bool {
-        self.region.len() == 0
+        unsafe { &*self.region.get() }.is_empty()
     }
 
     /// Shortens the buffer, keeping the first `len` elements and dropping the
@@ -180,12 +179,12 @@ impl<T> RegionBuffer<T> {
     ///
     /// # Panics
     /// If `len` is less than an already borrowed region.
-    pub fn truncate(&mut self, len: usize) {
+    pub fn truncate(&self, len: usize) {
         assert!(
-            self.ranges.read().unwrap().iter().all(|(_, end)| len > *end),
+            self.ranges.0.read().unwrap().0.iter().all(|(_, end)| len > *end),
             "Truncated into an already borrowed region"
         );
-        self.region.truncate(len)
+        unsafe { &mut *self.region.get() }.truncate(len)
     }
 
     /// Provides a mutable reference to a region in the buffer, provided that
@@ -194,105 +193,55 @@ impl<T> RegionBuffer<T> {
     /// # Panics
     /// If the region has already been borrowed.
     pub fn region(&self, start: usize, end: usize) -> Slice<T> {
-        self.assert_region_is_free(start, end);
+        self.ranges.insert(start, end);
 
-        self.ranges.write().unwrap().insert((start, end));
+        let data = &mut unsafe { &mut *self.region.get() }[start..end];
 
-        let data = unsafe {
-            &mut (&mut *self.get_slice_pointer())[start..end]
-        };
-
-        Slice::new(data, (start, end), self.ranges.clone())
+        Slice::new(data, (start, end), &self.ranges)
     }
 
     /// Returns a single element from the buffer. The borrowing rules also apply
     /// to this single element, so you can't get a single element from an
     /// already borrowed region and vice versa.
-    pub fn get<'a>(&self, index: usize) -> Element<'a, T> {
-        self.assert_region_is_free(index, index + 1);
+    pub fn get(&self, index: usize) -> Element<T> {
+        self.ranges.insert(index, index + 1);
 
-        self.ranges.write().unwrap().insert((index, index + 1));
-
-        Element::new(unsafe {&*self.get_pointer(index)}, index, self.ranges.clone())
+        Element::new(&unsafe { &*self.region.get() }[index], index, &self.ranges)
     }
 
     /// Returns a single mutable element from the buffer. The borrowing rules
     /// also apply to this single element, so you can't get a single element
     /// from an already borrowed region and vice versa.
-    pub fn get_mut<'a>(&self, index: usize) -> ElementMut<'a, T> {
-        self.assert_region_is_free(index, index + 1);
+    pub fn get_mut(&self, index: usize) -> ElementMut<T> {
+        self.ranges.insert(index, index + 1);
 
-        self.ranges.write().unwrap().insert((index, index + 1));
-
-        ElementMut::new(unsafe {&mut *self.get_pointer(index)}, index, self.ranges.clone())
-    }
-
-    fn is_region_borrowed(&self, start: usize, end: usize) -> Overlaps {
-        for (used_start, used_end) in self.ranges.read().unwrap()
-                                                        .iter()
-                                                        .map(|(x, y)| (*x, *y))
-        {
-            println!("EXISTING: {:?}, NEW: {:?}", (used_start, used_end), (start, end));
-            if start >= used_start && start < used_end
-            {
-                return Overlaps::Start
-            } else if end >= used_start && end <= used_end
-            {
-                return Overlaps::End
-            } else if used_start >= start && used_end <= end {
-                return Overlaps::StartAndEnd
-            }
-        }
-
-        Overlaps::None
-    }
-
-    fn assert_region_is_free(&self, start: usize, end: usize) {
-        match self.is_region_borrowed(start, end) {
-            Overlaps::None => (),
-            error => panic!(error.to_string())
-        }
-    }
-
-    unsafe fn get_pointer(&self, index: usize) -> *mut T {
-        &self.region[index] as *const T as *mut T
-    }
-
-    unsafe fn get_slice_pointer(&self) -> *mut [T] {
-        &*self.region as *const [T] as *mut [T]
+        ElementMut::new(&mut unsafe { &mut *self.region.get() }[index], index, &self.ranges)
     }
 
 }
+
+unsafe impl<T> Sync for RegionBuffer<T> {}
 
 impl<T: Clone> RegionBuffer<T> {
     /// Initialise a buffer of `len` size, with all elements initialised to
     /// `element`.
     pub fn from_elements(element: T, len: usize) -> Self {
         Self {
-            region: vec![element; len],
-            ranges: Arc::new(RwLock::new(HashSet::new()))
+            region: UnsafeCell::new(vec![element; len]),
+            ranges: Ranges::new(),
         }
     }
 
     /// Expands the region by `to` size, with all new elements initialised to
     /// `element`.
     pub fn expand(&mut self, to: usize, element: T) {
-        self.region.reserve(to + 1);
-
+        let region = unsafe { &mut *self.region.get() };
+        region.reserve(to + 1);
         for _ in 0..to {
-            self.region.push(element.clone());
+            region.push(element.clone());
         }
     }
 
-}
-
-impl<T> Drop for RegionBuffer<T> {
-    fn drop(&mut self) {
-        assert!(
-            self.ranges.read().unwrap().len() == 0,
-            "Dropping while borrowed regions still live"
-        )
-    }
 }
 
 /// Represents a mutable slice into a region of memory. The region will be freed
@@ -301,18 +250,18 @@ impl<T> Drop for RegionBuffer<T> {
 pub struct Slice<'a, T: 'a> {
     data: &'a mut [T],
     points: (usize, usize),
-    ranges: Ranges,
+    ranges: &'a Ranges,
 }
 
 impl<'a, T: 'a> Slice<'a, T> {
-    fn new(data: &'a mut [T], points: (usize, usize), ranges: Ranges) -> Self {
+    fn new(data: &'a mut [T], points: (usize, usize), ranges: &'a Ranges) -> Self {
         Self { data, points, ranges }
     }
 }
 
 impl<'a, T: 'a> Drop for Slice<'a, T> {
     fn drop(&mut self) {
-        self.ranges.write().unwrap().remove(&self.points);
+        self.ranges.0.write().unwrap().0.remove(&self.points);
     }
 }
 
@@ -367,11 +316,11 @@ impl<'a, 'b, T: PartialEq> PartialEq<&'b mut [T]> for Slice<'a, T> {
 pub struct Element<'a, T: 'a> {
     data: &'a T,
     index: usize,
-    parent: Ranges,
+    parent: &'a Ranges,
 }
 
 impl<'a, T> Element<'a, T> {
-    fn new(data: &'a T, index: usize, parent: Ranges) -> Self {
+    fn new(data: &'a T, index: usize, parent: &'a Ranges) -> Self {
         Self { data, index, parent }
     }
 }
@@ -386,7 +335,7 @@ impl<'a, T> Deref for Element<'a, T> {
 
 impl<'a, T> Drop for Element<'a, T> {
     fn drop(&mut self) {
-        self.parent.write().unwrap().remove(&(self.index, self.index + 1));
+        self.parent.0.write().unwrap().0.remove(&(self.index, self.index + 1));
     }
 }
 
@@ -407,11 +356,11 @@ impl<'a, T: fmt::Display> fmt::Display for Element<'a, T> {
 pub struct ElementMut<'a, T: 'a> {
     data: &'a mut T,
     index: usize,
-    parent: Ranges,
+    parent: &'a Ranges,
 }
 
 impl<'a, T> ElementMut<'a, T> {
-    fn new(data: &'a mut T, index: usize, parent: Ranges) -> Self {
+    fn new(data: &'a mut T, index: usize, parent: &'a Ranges) -> Self {
         Self { data, index, parent }
     }
 }
@@ -432,7 +381,7 @@ impl <'a, T> DerefMut for ElementMut<'a, T> {
 
 impl<'a, T> Drop for ElementMut<'a, T> {
     fn drop(&mut self) {
-        self.parent.write().unwrap().remove(&(self.index, self.index + 1));
+        self.parent.0.write().unwrap().0.remove(&(self.index, self.index + 1));
     }
 }
 
@@ -448,6 +397,56 @@ impl<'a, T: fmt::Display> fmt::Display for ElementMut<'a, T> {
     }
 }
 
+#[derive(Debug, Default)]
+struct Ranges(RwLock<RangesInner>);
+
+impl Ranges {
+    fn new() -> Self {
+        Ranges(RwLock::new(RangesInner::new()))
+    }
+
+    fn insert(&self, start: usize, end: usize) {
+        let mut locked = self.0.write().unwrap();
+        if let Err(e) = locked.assert_region_is_free(start, end) {
+            // Dropping to prevent poisoning
+            drop(locked);
+            panic!(e);
+        }
+        locked.0.insert((start, end));
+    }
+}
+
+#[derive(Debug, Default)]
+struct RangesInner(HashSet<(usize, usize)>);
+
+impl RangesInner {
+    fn new() -> Self {
+        RangesInner(HashSet::new())
+    }
+
+    fn assert_region_is_free(&self, start: usize, end: usize) -> Result<(), String> {
+        match self.is_region_borrowed(start, end) {
+            Overlaps::None => Ok(()),
+            error => Err(error.to_string())
+        }
+    }
+
+    fn is_region_borrowed(&self, start: usize, end: usize) -> Overlaps {
+        for (used_start, used_end) in self.0.iter().map(|(x, y)| (*x, *y)) {
+            if start >= used_start && start < used_end
+            {
+                return Overlaps::Start
+            } else if end >= used_start && end <= used_end
+            {
+                return Overlaps::End
+            } else if used_start >= start && used_end <= end {
+                return Overlaps::StartAndEnd
+            }
+        }
+
+        Overlaps::None
+    }
+}
 
 #[derive(Debug, PartialEq)]
 enum Overlaps {
@@ -535,7 +534,7 @@ mod tests {
 
     #[test]
     fn truncate() {
-        let mut foo = region_buffer![1, 2, 3];
+        let foo = region_buffer![1, 2, 3];
 
         let _a = foo.get_mut(0);
 
@@ -545,23 +544,10 @@ mod tests {
     #[test]
     #[should_panic(expected="Truncated into an already borrowed region")]
     fn truncate_into_borrowed() {
-        let mut foo = region_buffer![1, 2, 3];
+        let foo = region_buffer![1, 2, 3];
 
         let _a = foo.get_mut(2);
 
         foo.truncate(2);
-    }
-
-    #[test]
-    #[should_panic(expected="Dropping while borrowed regions still live")]
-    fn drop_parent() {
-
-        let mut el = {
-            let strings = region_buffer!["Hello".to_owned()];
-            strings.get_mut(0)
-        };
-
-        el.push('x');
-        println!("{}", el);
     }
 }
