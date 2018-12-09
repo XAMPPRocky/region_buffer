@@ -208,7 +208,7 @@ impl<T> RegionBuffer<T> {
     /// Returns a single element from the buffer. The borrowing rules also apply
     /// to this single element, so you can't get a single element from an
     /// already borrowed region and vice versa.
-    pub fn get(&self, index: usize) -> Element<T> {
+    pub fn get<'a>(&self, index: usize) -> Element<'a, T> {
         self.assert_region_is_free(index, index + 1);
 
         self.ranges.write().unwrap().insert((index, index + 1));
@@ -284,6 +284,15 @@ impl<T: Clone> RegionBuffer<T> {
         }
     }
 
+}
+
+impl<T> Drop for RegionBuffer<T> {
+    fn drop(&mut self) {
+        assert!(
+            self.ranges.read().unwrap().len() == 0,
+            "Dropping while borrowed regions still live"
+        )
+    }
 }
 
 /// Represents a mutable slice into a region of memory. The region will be freed
@@ -541,5 +550,18 @@ mod tests {
         let _a = foo.get_mut(2);
 
         foo.truncate(2);
+    }
+
+    #[test]
+    #[should_panic(expected="Dropping while borrowed regions still live")]
+    fn drop_parent() {
+
+        let mut el = {
+            let strings = region_buffer!["Hello".to_owned()];
+            strings.get_mut(0)
+        };
+
+        el.push('x');
+        println!("{}", el);
     }
 }
