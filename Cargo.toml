@@ -10,9 +10,6 @@ description = "A growable array allowing for multiple mutable non overlapping re
 repository = "https://github.com/Aaronepower/region_buffer.git"
 
 [badges]
-[badges.appveyor]
-repository = "Aaronepower/region_buffer"
-
 [badges.travis-ci]
 repository = "Aaronepower/region_buffer"
 

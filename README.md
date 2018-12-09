@@ -1,6 +1,5 @@
 # Region Buffer
 [![Linux build status](https://img.shields.io/travis/Aaronepower/region_buffer.svg?branch=master)](https://travis-ci.org/Aaronepower/region_buffer)
-[![Windows build status](https://ci.appveyor.com/api/projects/status/github/Aaronepower/region_buffer?svg=true)](https://ci.appveyor.com/project/Aaronepower/region_buffer)
 [![](https://img.shields.io/crates/d/region_buffer.svg)](https://crates.io/crates/region_buffer)
 [![](https://img.shields.io/github/issues-raw/Aaronepower/region_buffer.svg)](https://github.com/Aaronepower/region_buffer/issues)
 [![](https://tokei.rs/b1/github/Aaronepower/region_buffer?category=code)](https://github.com/Aaronepower/region_buffer)
